@@ -370,6 +370,318 @@ try:
     
     st.markdown("---")
     
+    # ========== NEW SECTION 5A: PTP Date Range Analysis ==========
+    st.header("📅 PTP Date Range Analysis")
+    
+    # PTP Date Range Filter
+    st.subheader("🔍 Select PTP Date Range")
+    
+    # Get min and max PTP dates
+    ptp_dates = filtered_df['PTP Date'].dropna()
+    
+    if len(ptp_dates) > 0:
+        min_ptp_date = pd.to_datetime(ptp_dates).min().date()
+        max_ptp_date = pd.to_datetime(ptp_dates).max().date()
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            ptp_start_date = st.date_input(
+                "PTP Start Date",
+                value=min_ptp_date,
+                min_value=min_ptp_date,
+                max_value=max_ptp_date,
+                key="ptp_start"
+            )
+        with col2:
+            ptp_end_date = st.date_input(
+                "PTP End Date",
+                value=max_ptp_date,
+                min_value=min_ptp_date,
+                max_value=max_ptp_date,
+                key="ptp_end"
+            )
+        
+        # Filter by PTP Date Range
+        ptp_range_df = filtered_df[
+            (pd.to_datetime(filtered_df['PTP Date']).dt.date >= ptp_start_date) &
+            (pd.to_datetime(filtered_df['PTP Date']).dt.date <= ptp_end_date) &
+            (filtered_df['PTP Status'].notna()) &
+            (filtered_df['PTP Amount'].notna())
+        ].copy()
+        
+        if len(ptp_range_df) > 0:
+            # Additional PTP Status Filter (Optional)
+            st.subheader("🎯 Optional: Filter by PTP Status")
+            ptp_status_options = ['All Status'] + sorted(ptp_range_df['PTP Status'].unique().tolist())
+            selected_ptp_filter = st.selectbox("Select Specific PTP Status", ptp_status_options, key="ptp_status_filter")
+            
+            if selected_ptp_filter != 'All Status':
+                ptp_range_df = ptp_range_df[ptp_range_df['PTP Status'] == selected_ptp_filter]
+            
+            # Calculate key metrics
+            total_ptp_customers = ptp_range_df['DisbursementID'].nunique()
+            total_ptp_amount_range = ptp_range_df['PTP Amount'].sum()
+            total_collection_from_ptp = ptp_range_df['Collection Amount'].sum()
+            total_comms_ptp = ptp_range_df['Total Communications'].sum()
+            
+            # Customers who gave collection
+            customers_with_collection = ptp_range_df[ptp_range_df['Collection Amount'] > 0]['DisbursementID'].nunique()
+            collection_amount_received = ptp_range_df[ptp_range_df['Collection Amount'] > 0]['Collection Amount'].sum()
+            
+            # Customers who did NOT give collection
+            customers_without_collection = ptp_range_df[ptp_range_df['Collection Amount'] == 0]['DisbursementID'].nunique()
+            ptp_amount_no_collection = ptp_range_df[ptp_range_df['Collection Amount'] == 0]['PTP Amount'].sum()
+            
+            # Display Key Metrics
+            st.subheader("📊 PTP Date Range Metrics")
+            col1, col2, col3, col4, col5 = st.columns(5)
+            
+            with col1:
+                st.metric("👥 Total PTP Customers", f"{total_ptp_customers:,}")
+            with col2:
+                st.metric("💰 Total PTP Amount", f"₹{total_ptp_amount_range:,.0f}")
+            with col3:
+                st.metric("💵 Collection Received", f"₹{total_collection_from_ptp:,.0f}")
+            with col4:
+                st.metric("📞 Total Communications", f"{total_comms_ptp:,}")
+            with col5:
+                collection_rate_ptp = (total_collection_from_ptp / total_ptp_amount_range * 100) if total_ptp_amount_range > 0 else 0
+                st.metric("📈 Collection %", f"{collection_rate_ptp:.1f}%")
+            
+            st.markdown("---")
+            
+            # Collection vs No Collection
+            st.subheader("💸 Collection Status Breakdown")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("### ✅ Customers Who Gave Collection")
+                st.metric("👥 Customer Count", f"{customers_with_collection:,}")
+                st.metric("💵 Collection Amount", f"₹{collection_amount_received:,.0f}")
+                
+                # Show breakdown by PTP Status
+                collection_by_status = ptp_range_df[ptp_range_df['Collection Amount'] > 0].groupby('PTP Status').agg({
+                    'DisbursementID': 'nunique',
+                    'Collection Amount': 'sum',
+                    'PTP Amount': 'sum'
+                }).round(2)
+                collection_by_status.columns = ['Customers', 'Collection (₹)', 'PTP Amount (₹)']
+                st.dataframe(collection_by_status, use_container_width=True)
+            
+            with col2:
+                st.markdown("### ❌ Customers Who Did NOT Give Collection")
+                st.metric("👥 Customer Count", f"{customers_without_collection:,}")
+                st.metric("💰 PTP Amount (Unpaid)", f"₹{ptp_amount_no_collection:,.0f}")
+                
+                # Show breakdown by PTP Status
+                no_collection_by_status = ptp_range_df[ptp_range_df['Collection Amount'] == 0].groupby('PTP Status').agg({
+                    'DisbursementID': 'nunique',
+                    'PTP Amount': 'sum'
+                }).round(2)
+                no_collection_by_status.columns = ['Customers', 'PTP Amount (₹)']
+                st.dataframe(no_collection_by_status, use_container_width=True)
+            
+            # Visualization
+            st.subheader("📊 Visual Analysis")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Pie chart: Collection vs No Collection
+                collection_status_data = pd.DataFrame({
+                    'Status': ['Collection Received', 'No Collection'],
+                    'Count': [customers_with_collection, customers_without_collection]
+                })
+                
+                fig_collection_status = px.pie(
+                    collection_status_data,
+                    values='Count',
+                    names='Status',
+                    title='Customers: Collection Status',
+                    color='Status',
+                    color_discrete_map={'Collection Received': '#2ecc71', 'No Collection': '#e74c3c'},
+                    hole=0.4
+                )
+                fig_collection_status.update_traces(textposition='inside', textinfo='percent+label+value')
+                fig_collection_status = apply_chart_theme(fig_collection_status)
+                fig_collection_status.update_layout(height=400)
+                st.plotly_chart(fig_collection_status, use_container_width=True)
+            
+            with col2:
+                # Bar chart: PTP Status wise collection
+                ptp_status_summary = ptp_range_df.groupby('PTP Status').agg({
+                    'DisbursementID': 'nunique',
+                    'Collection Amount': 'sum',
+                    'Total Communications': 'sum'
+                }).reset_index()
+                
+                fig_ptp_status = px.bar(
+                    ptp_status_summary,
+                    x='PTP Status',
+                    y='DisbursementID',
+                    title='Customers by PTP Status',
+                    labels={'DisbursementID': 'Number of Customers', 'PTP Status': 'PTP Status'},
+                    color='Collection Amount',
+                    color_continuous_scale='Viridis',
+                    text='DisbursementID'
+                )
+                fig_ptp_status.update_traces(texttemplate='%{text:,}', textposition='outside')
+                fig_ptp_status = apply_chart_theme(fig_ptp_status)
+                fig_ptp_status.update_layout(height=400)
+                st.plotly_chart(fig_ptp_status, use_container_width=True)
+            
+            # Detailed Table
+            st.subheader("📋 Detailed Customer List")
+            
+            # Prepare detailed data
+            detailed_data = ptp_range_df.groupby('DisbursementID').agg({
+                'CustomerName': 'first',
+                'Branch': 'first',
+                'PTP Date': 'first',
+                'PTP Status': 'first',
+                'PTP Amount': 'sum',
+                'Collection Amount': 'sum',
+                'Total Communications': 'sum'
+            }).reset_index()
+            
+            detailed_data.columns = ['Disbursement ID', 'Customer Name', 'Branch', 'PTP Date', 
+                                    'PTP Status', 'PTP Amount (₹)', 'Collection Amount (₹)', 
+                                    'Total Communications']
+            
+            detailed_data['Collection Status'] = detailed_data['Collection Amount (₹)'].apply(
+                lambda x: '✅ Collected' if x > 0 else '❌ Not Collected'
+            )
+            
+            # Format amounts
+            detailed_data['PTP Amount (₹)'] = detailed_data['PTP Amount (₹)'].apply(lambda x: f"₹{x:,.2f}")
+            detailed_data['Collection Amount (₹)'] = detailed_data['Collection Amount (₹)'].apply(lambda x: f"₹{x:,.2f}")
+            
+            st.dataframe(detailed_data, use_container_width=True, height=400)
+            
+            # Download button for this analysis
+            detailed_csv = detailed_data.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Download PTP Date Range Analysis (CSV)",
+                data=detailed_csv,
+                file_name=f'ptp_analysis_{ptp_start_date}_to_{ptp_end_date}.csv',
+                mime='text/csv',
+            )
+        else:
+            st.warning(f"No PTP records found between {ptp_start_date} and {ptp_end_date}")
+    else:
+        st.info("No PTP Date data available in the filtered dataset.")
+    
+    st.markdown("---")
+    
+    # ========== NEW SECTION 5B: Collections WITHOUT PTP ==========
+    st.header("💰 Collections Without PTP Analysis")
+    st.markdown("**Customers who gave collection WITHOUT giving PTP Status/Amount**")
+    
+    # Date range for collection (using PTP Date range selected above)
+    if len(ptp_dates) > 0:
+        st.subheader("📅 Using Same Date Range as Above")
+        st.info(f"Analyzing collections from {ptp_start_date} to {ptp_end_date}")
+        
+        # Filter: Collections > 0 BUT No PTP Status or No PTP Amount
+        collections_without_ptp = filtered_df[
+            (filtered_df['Collection Amount'] > 0) &
+            (
+                
+                (filtered_df['PTP Amount']==0)
+            )
+        ].copy()
+        
+        # Further filter by date range if Collection Date is available
+        if 'Collection Date' in collections_without_ptp.columns:
+            collections_without_ptp = collections_without_ptp[
+                (pd.to_datetime(collections_without_ptp['Collection Date'], errors='coerce').dt.date >= ptp_start_date) &
+                (pd.to_datetime(collections_without_ptp['Collection Date'], errors='coerce').dt.date <= ptp_end_date)
+            ]
+        
+        if len(collections_without_ptp) > 0:
+            # Calculate metrics
+            customers_no_ptp = collections_without_ptp['DisbursementID'].nunique()
+            total_collection_no_ptp = collections_without_ptp['Collection Amount'].sum()
+            total_comms_no_ptp = collections_without_ptp['Total Communications'].sum()
+            avg_collection_no_ptp = collections_without_ptp.groupby('DisbursementID')['Collection Amount'].sum().mean()
+            
+            # Display metrics
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric("👥 Customers", f"{customers_no_ptp:,}")
+            with col2:
+                st.metric("💵 Total Collection", f"₹{total_collection_no_ptp:,.0f}")
+            with col3:
+                st.metric("📞 Communications", f"{total_comms_no_ptp:,}")
+            with col4:
+                st.metric("📊 Avg per Customer", f"₹{avg_collection_no_ptp:,.0f}")
+            
+            st.markdown("---")
+            
+            # Branch-wise breakdown
+            st.subheader("🏢 Branch-wise Collections Without PTP")
+            
+            branch_no_ptp = collections_without_ptp.groupby('Branch').agg({
+                'DisbursementID': 'nunique',
+                'Collection Amount': 'sum',
+                'Total Communications': 'sum'
+            }).sort_values('Collection Amount', ascending=False).head(10)
+            
+            branch_no_ptp.columns = ['Customers', 'Collection Amount (₹)', 'Communications']
+            
+            fig_branch_no_ptp = px.bar(
+                branch_no_ptp.reset_index(),
+                x='Branch',
+                y='Collection Amount (₹)',
+                title='Top 10 Branches - Collections Without PTP',
+                color='Collection Amount (₹)',
+                color_continuous_scale='Blues',
+                text='Collection Amount (₹)'
+            )
+            fig_branch_no_ptp.update_traces(texttemplate='₹%{text:,.0f}', textposition='outside')
+            fig_branch_no_ptp = apply_chart_theme(fig_branch_no_ptp)
+            fig_branch_no_ptp.update_layout(showlegend=False, height=400, xaxis_tickangle=-45)
+            st.plotly_chart(fig_branch_no_ptp, use_container_width=True)
+            
+            # Detailed table
+            st.subheader("📋 Customer Details - Collections Without PTP")
+            
+            no_ptp_details = collections_without_ptp.groupby('DisbursementID').agg({
+                'CustomerName': 'first',
+                'Branch': 'first',
+                'Collection Amount': 'sum',
+                'Total Communications': 'sum',
+                'PTP Status': 'first',
+                'PTP Amount': 'first'
+            }).reset_index()
+            
+            no_ptp_details.columns = ['Disbursement ID', 'Customer Name', 'Branch', 
+                                     'Collection Amount (₹)', 'Communications', 
+                                     'PTP Status', 'PTP Amount']
+            
+            no_ptp_details['Collection Amount (₹)'] = no_ptp_details['Collection Amount (₹)'].apply(lambda x: f"₹{x:,.2f}")
+            no_ptp_details['PTP Status'] = no_ptp_details['PTP Status'].fillna('No PTP')
+            no_ptp_details['PTP Amount'] = no_ptp_details['PTP Amount'].fillna(0).apply(lambda x: f"₹{x:,.2f}" if x > 0 else 'No PTP')
+            
+            st.dataframe(no_ptp_details, use_container_width=True, height=400)
+            
+            # Download button
+            no_ptp_csv = no_ptp_details.to_csv(index=False).encode('utf-8')
+            st.download_button(
+                label="📥 Download Collections Without PTP (CSV)",
+                data=no_ptp_csv,
+                file_name=f'collections_without_ptp_{ptp_start_date}_to_{ptp_end_date}.csv',
+                mime='text/csv',
+            )
+        else:
+            st.info(f"No collections without PTP found in the date range {ptp_start_date} to {ptp_end_date}")
+    else:
+        st.info("No PTP Date data available for analysis.")
+    
+    st.markdown("---")
+    
     # Section 6: Branch Performance
     st.header("🏢 Branch Performance Analysis")
     
